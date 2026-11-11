@@ -1,0 +1,7 @@
+dist/
+.work/
+__pycache__/
+*.pyc
+*.env
+!*.env.example
+.superpowers/

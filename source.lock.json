@@ -1,0 +1,7 @@
+{
+  "upstream_repository": "https://github.com/cedar2025/Xboard-Node",
+  "upstream_commit": "0a29338e1f102a462363ce3527417029f89bab28",
+  "baseline_repository": "https://github.com/chinahch/php-fpm-core",
+  "baseline_commit": "c8058a2f14060d8d2d12adaaef218ff558a1df98",
+  "dual_ip_commit": "2a5ae50eed9bb400995601293a4ebd484920b0fd"
+}
