@@ -1,0 +1,73 @@
+# caddy · XBoard-compatible node
+
+本项目是自有 XBoard-Node 定制工程的可追溯迁移版，**不是 Caddy Web Server**。程序与服务保留 `caddy` / `caddyctl` 名称，以兼容历史安装路径。
+
+配套面板：[Luma](https://github.com/chinahch/luma)。源码发布为预览版，不等于已在生产或 128 MiB ARM64 节点验收。
+
+## 来源与功能
+
+- 原工程：[chinahch/php-fpm-core](https://github.com/chinahch/php-fpm-core)，固定 `c8058a2f14060d8d2d12adaaef218ff558a1df98`。
+- 双 IP 补丁来源：原工程历史提交 `2a5ae50eed9bb400995601293a4ebd484920b0fd`，不能只复制当前 main 重建。
+- 上游：[cedar2025/Xboard-Node](https://github.com/cedar2025/Xboard-Node)，固定 `0a29338e1f102a462363ce3527417029f89bab28`。
+- Node / Machine、多逻辑节点、sing-box / Xray、XHTTP 与内核原生 IP 选择修复。
+- 可选域名审计默认不编入；使用 `--audit` 才编入，并仍需显式环境变量才开启。它独立于计费统计，不保证记录完整。
+
+见 [来源说明](docs/provenance.md)、[兼容矩阵](docs/compatibility-matrix.md) 和 [审计限制](DOMAIN-AUDIT-README.md)。
+
+## 从固定源码构建
+
+需要 Git、Python 3.12+、Go 1.26.10。推荐在 Linux 构建并执行测试。
+
+```sh
+git clone https://github.com/chinahch/caddy.git
+cd caddy
+git clone https://github.com/cedar2025/Xboard-Node.git .work/upstream
+git -C .work/upstream checkout --detach 0a29338e1f102a462363ce3527417029f89bab28
+python3 scripts/prepare_source.py --upstream .work/upstream --out .work/prepared
+cd .work/prepared
+go test ./internal/...
+cd ../..
+python3 scripts/build.py --source .work/prepared --arch amd64 --out dist
+python3 scripts/build.py --source .work/prepared --arch arm64 --out dist
+cat dist/SHA256SUMS-* > dist/SHA256SUMS
+```
+
+准备流程从 Git 提交导出，既不修改上游 checkout，也不复制其未提交文件；输出目录已存在时拒绝覆盖。构建输出包含二进制、规范化安装包、SHA256 与来源清单。相同源码/补丁、Go 工具链和依赖才具有可重建意义，不保证任意 Go 版本产生相同字节。
+
+## 安装与回滚
+
+先在隔离测试机器验证协议、配置、资源占用和断线行为。尚未发布 GitHub Release 时，默认下载安装命令不能成功；可将已构建包放在受控 HTTPS 地址，并显式提供其校验值。
+
+```sh
+# 检查 SHA256 与源码来源后，仅在测试机执行。Alpine 先确保已安装 bash。
+export CADDY_PACKAGE_URL='https://downloads.example.com/caddy-linux-amd64v1.tar.gz'
+export CADDY_PACKAGE_SHA256='填入实际64位SHA256'
+bash install-v2.sh --mode node --panel https://panel.example.com \
+  --token YOUR_TEST_NODE_TOKEN --node-id 1 --node-type vless
+```
+
+Machine 模式改为 `--mode machine --machine-id 1`，使用面板生成的 Machine 令牌。重复安装保留现有 Machine 配置与凭据；旧版本自动升级目前禁用，因为上游进程 `/healthz` 不能证明各逻辑节点的内核已就绪。请在隔离机器验证后安排手工升级与回滚。首次安装先校验 SHA256、内容和版本，再安装二进制。未提供独立 SHA256 时从同路径 `SHA256SUMS` 读取；它提供传输完整性校验，不等同于独立签名或来源真实性证明。
+
+服务路径：`/etc/caddy/config.yml`、`/etc/caddy/credentials.env`、`/usr/local/bin/caddy`、`/usr/local/bin/caddyctl`；systemd `caddy.service` 或 OpenRC `caddy`。避免与真正的 Caddy Web Server 共用这些路径。
+
+升级前自行备份程序、配置、凭据和服务文件。失败时使用已保存的旧程序与配置恢复，并验证实际进程、连接与流量，而不只检查版本输出。不要在正在承载用户的节点上试验低内存候选包。
+
+## 测试与已知限制
+
+```sh
+export CADDY_TEST_UPSTREAM="$PWD/.work/upstream"
+python3 -m unittest discover -s tests -p 'test_*.py'
+bash tests/test-checksum.sh
+bash tests/test-installer-guards.sh
+bash tests/test-install-v2.sh
+```
+
+本机验证：Linux amd64/arm64 交叉编译通过；配置、tracker、双内核、控制面测试通过。审查修复后，CLI YAML round-trip、安装保护/校验/配置保留回归通过（Windows Git Bash）；Linux systemd/OpenRC 与 128 MiB ARM64 运行尚未验证。以 CI 和后续实际运行结果为准，不能把交叉编译通过视为兼容验收。
+
+旧上报使用窗口增量，失败量只恢复到内存，没有可靠持久批次身份。因此 Luma 的旧协议适配明确标记 `legacy`，不保证重试去重与断线不丢量。新增可靠批次 API 不表示当前节点已自动切换到它。
+
+`docs/legacy/` 保留原始安装脚本与工作流，仅供追溯，不是新项目的执行入口，也不会自动发布旧仓库资产。
+
+## 许可
+
+节点定制代码按 MPL-2.0 提供，保留上游项目归属；第三方 Go 依赖遵循各自许可。见 [LICENSE](LICENSE) 与 [第三方说明](THIRD_PARTY_NOTICES.md)。
