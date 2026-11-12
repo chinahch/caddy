@@ -46,6 +46,17 @@ edit(p,'m.magic = magic','''if m.issuerFactory!=nil{magic.Issuers=[]certmagic.Is
 edit(p,'m.acmeStarted = true\n\treturn nil','m.acmeStarted = true\n success=true\n\treturn nil')
 
 p='internal/service/service.go'
+edit(p,'type Service struct {','type Service struct {\n panelManagedCert bool\n localCertConfig config.CertConfig')
+edit(p,'cfg:          cfg,','cfg:          cfg,\n localCertConfig:cfg.Cert,')
+edit(p,'if nc.CertConfig != nil {\n\t\treturn s.applyNodeCert(ctx, nc.CertConfig)\n\t}','''if nc.CertConfig != nil {s.panelManagedCert=true;return s.applyNodeCert(ctx,nc.CertConfig)}
+ if s.panelManagedCert {
+  s.cert.Stop()
+  dir:=s.cfg.Cert.CertDir;next:=config.CertConfig{CertMode:"none",CertDir:dir}
+  if nc.TLS==1{next=s.localCertConfig;next.CertDir=dir}
+  s.applyNodeCert(ctx,&next);s.panelManagedCert=s.cert.State()=="failed"
+  return true
+ }''')
+edit(p,'case "hysteria", "hysteria2", "tuic", "anytls":\n\t\tneedsCert = true','case "hysteria", "hysteria2", "tuic":\n\t\tneedsCert = true\n case "anytls":\n needsCert=spec.TLS!=2')
 edit(p,'if len(bootstrap.Users) == 0 {','s.applyRemoteOverrides(ctx, bootstrap.Config)\n if len(bootstrap.Users) == 0 {')
 edit(p,'s.applyRemoteOverrides(ctx, bootstrap.Config)\n\tif !s.startKernel','if !s.certificateReady(bootstrap.Config){s.lastConfigHash="";s.markMailboxReadyAndDrain(ctx);return nil}\n\tif !s.startKernel')
 edit(p,'if err != nil {\n\t\tnlog.Core().Error("failed to apply runtime cert config", "mode", cfgCopy.CertMode, "error", err)','if err != nil {\n  s.lastConfigHash=""\n\t\tnlog.Core().Error("failed to apply runtime cert config", "mode", cfgCopy.CertMode)')
@@ -55,4 +66,4 @@ edit(p,'certChanged := s.cert.CertRenewed()','certChanged := false')
 edit(p,'result := pullResult{certChanged: certChanged}','certChanged = s.cert.CertRenewed()\n  result := pullResult{certChanged: certChanged}')
 
 for name,target in [('certificate_state','internal/cert/caddy_certificate_state.go'),('certificate_service','internal/service/caddy_certificate_service.go')]:shutil.copyfile(root/f'patches/{name}.go',target)
-for name,target in [('certificate_lifecycle','internal/cert/caddy_certificate_lifecycle_test.go'),('certificate_service','internal/service/caddy_certificate_service_test.go')]:shutil.copyfile(root/f'tests/{name}_test.go',target)
+for name,target in [('certificate_lifecycle','internal/cert/caddy_certificate_lifecycle_test.go'),('certificate_service','internal/service/caddy_certificate_service_test.go'),('certificate_review_service','internal/service/caddy_certificate_review_test.go')]:shutil.copyfile(root/f'tests/{name}_test.go',target)
