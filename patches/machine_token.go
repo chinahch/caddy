@@ -33,6 +33,9 @@ func runMachineToken(args []string) error {
 	var key string
 	for _, inst := range normalizeRootInstances(root) {
 		if inst.Machine != nil && inst.Machine.MachineID == *id && strings.TrimRight(inst.Panel.URL, "/") == strings.TrimRight(*panel, "/") {
+			if inst.Machine.Token != "" {
+				return errors.New("inline machine token overrides environment credentials; migrate the private configuration before rebinding")
+			}
 			if key != "" {
 				return errors.New("ambiguous existing machine identity")
 			}
@@ -42,6 +45,17 @@ func runMachineToken(args []string) error {
 	if !regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(key) {
 		return errors.New("matching machine with external credential not found; panel URL and ID must match")
 	}
+	for _, inst := range normalizeRootInstances(root) {
+		selected := inst.Machine != nil && inst.Machine.MachineID == *id && strings.TrimRight(inst.Panel.URL, "/") == strings.TrimRight(*panel, "/")
+		if !selected && (inst.Panel.TokenEnv == key || (inst.Machine != nil && inst.Machine.TokenEnv == key)) {
+			return errors.New("credential key is shared by another binding; separate its private credentials before rebinding")
+		}
+	}
+	unlock, err := lockMachineCredentials(*credentials)
+	if err != nil {
+		return errors.New("cannot lock private credentials")
+	}
+	defer unlock()
 	if info, e := os.Lstat(*credentials); e != nil || !info.Mode().IsRegular() {
 		return errors.New("existing regular credentials file required")
 	}

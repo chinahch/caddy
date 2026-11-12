@@ -8,13 +8,14 @@ parse_args --mode machine --panel https://panel.example --machine-id 7 --prompt-
 [[ "$PROMPT_TOKEN" == true && "$REBIND" == true ]]
 INSTALL_ROOT="$tmp/etc"; CONFIG_FILE="$INSTALL_ROOT/config.yml"; CREDENTIALS_FILE="$INSTALL_ROOT/credentials.env"; CLI_PATH="$tmp/caddyctl"; BINARY_PATH="$tmp/caddy"
 mkdir -p "$INSTALL_ROOT"
-printf 'instances:\n  - machine:\n      machine_id: 7\n' > "$CONFIG_FILE"
+printf 'instances:\n  - machine:\n      machine_id: 7 # primary\n' > "$CONFIG_FILE"
 printf 'ORIGINAL=config\n' > "$CREDENTIALS_FILE"
 cat > "$CLI_PATH" <<'EOF'
 #!/bin/sh
 test "$1" = machine-token
 test "$CADDY_MACHINE_TOKEN" = test-token
 printf '%s\n' "$@" > "$TEST_CAPTURE"
+while [ "$#" -gt 0 ]; do if [ "$1" = --machine-id ];then test "$2" = 7 || exit 1;fi;shift;done
 EOF
 chmod +x "$CLI_PATH";printf '#!/bin/sh\nexit 0\n' > "$BINARY_PATH";chmod +x "$BINARY_PATH"
 export TEST_CAPTURE="$tmp/args"

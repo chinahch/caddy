@@ -58,6 +58,8 @@ def prepare(upstream: Path, destination: Path, audit: bool = False):
             raise ValueError('upstream CLI command anchor changed')
         text = text.replace(anchor, 'case "machine-token":\n\t\treturn runMachineToken(args[1:])\n\t' + anchor)
         shutil.copyfile(ROOT / 'patches/machine_token.go', stage / 'cmd/xbctl/caddy_machine_token.go')
+        for platform in ['unix','windows']:
+            shutil.copyfile(ROOT / f'patches/machine_lock_{platform}.go',stage / f'cmd/xbctl/caddy_machine_lock_{platform}.go')
         shutil.copyfile(ROOT / 'tests/machine_token_cli_test.go', stage / 'cmd/xbctl/caddy_machine_token_test.go')
         for old, new in {
             '/etc/xboard-node': '/etc/caddy',

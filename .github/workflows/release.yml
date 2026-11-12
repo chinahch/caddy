@@ -39,6 +39,7 @@ jobs:
           bash customization/tests/test-machine-installer.sh
           bash customization/tests/test-checksum.sh
           bash customization/tests/test-installer-guards.sh
+          bash customization/tests/test-release-retry.sh
       - name: Build native package
         run: python3 customization/scripts/build.py --source prepared --arch ${{ matrix.arch }} --out dist
       - name: Archive exact dependency notices and corresponding sources
@@ -63,6 +64,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: native-*
@@ -77,10 +79,4 @@ jobs:
           cat SHA256SUMS-amd64 SHA256SUMS-arm64 > SHA256SUMS
           sha256sum caddy-sources-notices-*.tar.gz dependency-inventory-*.json build-info-*.json >> SHA256SUMS
           sha256sum --check SHA256SUMS
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo 'Release already exists; refusing to overwrite immutable assets. Bump RELEASE_TAG for a new version.'
-            exit 0
-          fi
-          gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --draft --prerelease --title "Caddy native $RELEASE_TAG" --notes "Native Linux amd64/arm64 preview, no Docker required on nodes. Includes SHA256 checksums, exact source/dependency notice archives and build provenance. CF/MTG connectors remain separate. ARM64 runtime capacity and production networks require host acceptance."
-          gh release upload "$RELEASE_TAG" ./*.tar.gz ./SHA256SUMS ./build-info-*.json ./dependency-inventory-*.json
-          gh release edit "$RELEASE_TAG" --draft=false
+          bash ../scripts/publish_release.sh

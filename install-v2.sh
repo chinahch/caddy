@@ -163,7 +163,6 @@ read_connection_token() {
 rebind_existing_machine() {
   [ "$MODE" = machine ] || { err 'Rebind requires Machine mode'; return 1; }
   [ -x "$BINARY_PATH" ] && [ -x "$CLI_PATH" ] && [ -f "$CONFIG_FILE" ] && [ -f "$CREDENTIALS_FILE" ] || { err 'Complete existing installation required'; return 1; }
-  grep -Eq "^[[:space:]]*machine_id:[[:space:]]*['\"]?${MACHINE_ID}(['\"])?[[:space:]]*$" "$CONFIG_FILE" || { err 'Machine ID does not match existing configuration'; return 1; }
   local stage
   stage="$(mktemp -d)"
   if ! prepare_connection_cli "$stage/caddyctl"; then rm -rf "$stage"; return 1; fi
