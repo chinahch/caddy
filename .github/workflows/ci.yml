@@ -44,6 +44,7 @@ jobs:
           bash tests/test-installer-guards.sh
           bash tests/test-install-v2.sh
           bash tests/test-machine-installer.sh
+          bash tests/test-enrollment-installer.sh
           bash tests/test-release-retry.sh
       - name: Prepare combined source
         env:
