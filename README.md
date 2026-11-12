@@ -20,7 +20,7 @@
 
 面板“服务器 → 安装 / 接入”生成一条 15 分钟有效的固定版本安装命令。节点以 root 执行，无需提示选择或手工复制令牌。安装器下载原生 Linux amd64/arm64 二进制及 SHA256 清单；原生 CLI 在本机生成私有凭据，使用短期接入码自动登记，再注册 systemd/OpenRC 服务。节点无需 Go、Python 或 Docker。面板地址必须能从节点访问，不能填写 localhost。支持 HTTP 与 HTTPS 面板地址，生产部署推荐 HTTPS。
 
-预编译安装包见 [Releases](https://github.com/chinahch/caddy/releases)。版本 `v0.1.2-preview` 同时提供精确依赖清单、对应模块与 Go 源码、许可证/通知及构建来源。CF/MTProxy 连接器仍独立安装。
+预编译安装包见 [Releases](https://github.com/chinahch/caddy/releases)。版本 `v0.1.3-preview` 同时提供精确依赖清单、对应模块与 Go 源码、许可证/通知及构建来源。CF/MTProxy 连接器仍独立安装。
 
 相同命令自动区分首次安装和已有服务器重新接入。已有安装必须与面板地址和机器 ID 精确匹配，私有凭据不能被其他绑定共用或被内联令牌覆盖。校验和接入失败时保留原程序、配置及凭据；接入成功后保留 config.yml 与其他凭据，安装已校验的新原生程序并重启原服务。域名迁移、未知 Caddy Web Server、未知服务及不明残留文件均拒绝自动覆盖。
 
@@ -88,3 +88,5 @@ bash tests/test-enrollment-installer.sh
 ## 许可
 
 节点定制代码按 MPL-2.0 提供，保留上游项目归属；第三方 Go 依赖遵循各自许可。见 [LICENSE](LICENSE) 与 [第三方说明](THIRD_PARTY_NOTICES.md)。
+
+原生检测、故障查询、物理网卡公网地址与已有机器升级边界见 [检测说明](docs/probes.md)。
