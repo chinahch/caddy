@@ -252,7 +252,7 @@ func runMachineEnroll(args []string) error {
 			if e != nil {
 				return errors.New("cannot inspect pending installation metadata")
 			}
-			if e = writeInstallMetaVersioned(stagedMeta, rootConfig, "v0.1.2-preview", ""); e != nil {
+			if e = writeInstallMetaVersioned(stagedMeta, rootConfig, "v0.1.3-preview", ""); e != nil {
 				return errors.New("cannot stage pending installation metadata")
 			}
 		}
@@ -265,7 +265,7 @@ func runMachineEnroll(args []string) error {
 		stagedConfig = filepath.Join(stage, "config.yml")
 		stagedCreds = filepath.Join(stage, "credentials.env")
 		stagedMeta = filepath.Join(stage, "install-meta.json")
-		err = runConfigInit([]string{"--mode", "machine", "--panel-url", *panel, "--machine-id", strconv.Itoa(*id), "--token", state.Token, "--kernel", *kernel, "--health-port", strconv.Itoa(*health), "--output", stagedConfig, "--credentials-out", stagedCreds, "--meta", stagedMeta, "--install-root", *root, "--version", "v0.1.2-preview"})
+		err = runConfigInit([]string{"--mode", "machine", "--panel-url", *panel, "--machine-id", strconv.Itoa(*id), "--token", state.Token, "--kernel", *kernel, "--health-port", strconv.Itoa(*health), "--output", stagedConfig, "--credentials-out", stagedCreds, "--meta", stagedMeta, "--install-root", *root, "--version", "v0.1.3-preview"})
 		if err != nil {
 			return errors.New("cannot stage machine configuration")
 		}

@@ -36,6 +36,13 @@ func TestEmptyMachineImmediatelyReportsAndLaterStartsAssignedNode(t *testing.T) 
 	var badAuth atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v3/server/probes" {
+			if r.Method != "GET" || r.URL.Query().Get("machine_id") != "7" || r.URL.Query().Get("token") != "" || r.Header.Get("Authorization") != "Bearer fixture-private-machine-token" {
+				badAuth.Store(true)
+			}
+			fmt.Fprint(w, `{"tasks":[]}`)
+			return
+		}
 		if r.Method == "GET" {
 			if r.URL.Query().Get("machine_id") != "7" || r.URL.Query().Get("token") != "fixture-private-machine-token" || r.URL.Query().Get("node_id") != "11" {
 				badAuth.Store(true)

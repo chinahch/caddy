@@ -37,7 +37,7 @@ def build(source: Path, arch: str, out: Path):
     folder.mkdir(parents=True, exist_ok=True)
     version = 'custom-' + manifest['upstream_commit'][:7] + '-dual-ip-v2'
     if 'landing-v1' in manifest['features']:
-        version += '-luma-v1'
+        version += '-luma-v2' if 'proxy-probes-v1' in manifest['features'] else '-luma-v1'
     if 'domain-audit-opt-in' in manifest['features']:
         version += '-audit'
     timestamp = datetime.fromtimestamp(manifest['source_date_epoch'], timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
