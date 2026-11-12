@@ -50,6 +50,7 @@ def prepare(upstream: Path, destination: Path, audit: bool = False):
             shutil.copyfile(ROOT / f'tests/preset_{name}_test.go', stage / f'internal/kernel/{name}/luma_presets_test.go')
             shutil.copyfile(ROOT / f'tests/dataplane_{name}_test.go', stage / f'internal/kernel/{name}/luma_dataplane_test.go')
         shutil.copyfile(ROOT / 'tests/protocol_kernel_test.go', stage / 'internal/model/luma_kernel_test.go')
+        shutil.copyfile(ROOT / 'tests/private_errors_xray_test.go',stage / 'internal/kernel/xray/luma_private_errors_test.go')
         cli = stage / 'cmd/xbctl/main.go'
         text = cli.read_text(encoding='utf-8')
         for old, new in {

@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -72,5 +75,57 @@ func TestQueueRetryPreservesExactIntegerIdentity(t *testing.T) {
 	}
 	if len(bodies) != 2 || !bytes.Equal(bodies[0], bodies[1]) || !bytes.Contains(bodies[1], []byte("9007199254740993")) {
 		t.Fatal("retry changed raw bytes")
+	}
+}
+
+func TestReportsSustain64ActiveConnectorsWithPanelLatency(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(20 * time.Millisecond)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+	c, _ := NewClient(Config{PanelURL: server.URL, MachineID: 1}, "test")
+	q, _ := OpenSpool(t.TempDir())
+	for round := 0; round < 3; round++ {
+		for id := 1; id <= 64; id++ {
+			if e := q.Enqueue(Report{NodeID: int64(id), ReportID: fmt.Sprintf("round-%d-node-%d", round, id), PeriodStart: time.Now().Add(-time.Second), PeriodEnd: time.Now(), Entries: []Entry{{UserID: int64(id), Up: 101}}}); e != nil {
+				t.Fatal(e)
+			}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		e := c.Flush(ctx, q)
+		cancel()
+		pending, _ := q.Pending()
+		if e != nil || len(pending) != 0 {
+			t.Fatal("healthy 64-node queue grew", len(pending), e)
+		}
+	}
+}
+func TestRejectedNodeCannotBlockOtherReports(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body Report
+		json.NewDecoder(r.Body).Decode(&body)
+		if body.NodeID == 1 {
+			w.WriteHeader(403)
+			return
+		}
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+	c, _ := NewClient(Config{PanelURL: server.URL, MachineID: 1}, "test")
+	q, _ := OpenSpool(t.TempDir())
+	for id := 1; id <= 2; id++ {
+		if e := q.Enqueue(Report{NodeID: int64(id), ReportID: fmt.Sprintf("node-%d", id), PeriodStart: time.Now().Add(-time.Minute), PeriodEnd: time.Now(), Entries: []Entry{{UserID: int64(id), Up: 101}}}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	_ = c.Flush(context.Background(), q)
+	pending, _ := q.Pending()
+	if len(pending) != 0 {
+		t.Fatal("disabled node blocked another report", len(pending))
+	}
+	rejected, e := os.ReadDir(filepath.Join(q.dir, "rejected", "1"))
+	if e != nil || len(rejected) == 0 {
+		t.Fatal("rejected report was discarded", e)
 	}
 }

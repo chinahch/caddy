@@ -20,3 +20,10 @@ edit('internal/machine/machine.go', '\t\tif resolved := model.ResolveKernelForTr
 edit('internal/kernel/singbox/config.go',
      '\tif tls := buildTLSConfig(nc, tc); tls != nil {\n\t\tbase["tls"] = tls\n\t} else {\n\t\tnlog.Core().Warn("anytls',
      '\tif nc.TLS == 2 {\n\t\tbase["tls"] = buildRealityConfig(nc)\n\t} else if tls := buildTLSConfig(nc, tc); tls != nil {\n\t\tbase["tls"] = tls\n\t} else {\n\t\tnlog.Core().Warn("anytls')
+
+# Pinned core errors may concatenate a malformed private key/decryption string.
+# Never propagate those values to service logs, including reload/start failures.
+for phase, old in [('parse','parse xray config'),('create','create xray'),('start','start xray')]:
+    edit('internal/kernel/xray/xray.go',
+         'return fmt.Errorf("'+old+': %w", err)',
+         'return fmt.Errorf("xray configuration rejected during '+phase+'; check keys, certificates and protocol settings")')

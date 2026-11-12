@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -37,20 +36,30 @@ type Supervisor struct {
 	binDir, stateDir string
 	queue            *Spool
 	children         map[int64]*child
+	blocked          map[int64]Spec
 	lease            time.Time
 	local            *http.Client
 }
 
 func NewSupervisor(bins, state string, q *Spool) *Supervisor {
-	return &Supervisor{binDir: bins, stateDir: state, queue: q, children: map[int64]*child{}, local: &http.Client{Timeout: time.Second, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	return &Supervisor{binDir: bins, stateDir: state, queue: q, children: map[int64]*child{}, blocked: map[int64]Spec{}, local: &http.Client{Timeout: time.Second, Transport: &http.Transport{Proxy: nil}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 func (s *Supervisor) Apply(ctx context.Context, d Desired) error {
 	if e := ValidateDesired(d.Connectors); e != nil {
 		return e
 	}
 	desired := map[int64]Spec{}
+	rejected, e := s.queue.RejectedNodes()
+	if e != nil {
+		return e
+	}
+	s.blocked = map[int64]Spec{}
 	for _, v := range d.Connectors {
-		desired[v.NodeID] = v
+		if rejected[v.NodeID] {
+			s.blocked[v.NodeID] = v
+		} else {
+			desired[v.NodeID] = v
+		}
 	}
 	for id, c := range s.children {
 		v, exists := desired[id]
@@ -72,6 +81,9 @@ func (s *Supervisor) Apply(ctx context.Context, d Desired) error {
 	}
 	s.lease = d.LeaseUntil
 	for _, v := range d.Connectors {
+		if _, allowed := desired[v.NodeID]; !allowed {
+			continue
+		}
 		if s.children[v.NodeID] != nil {
 			continue
 		}
@@ -178,6 +190,9 @@ func (s *Supervisor) sampleOne(ctx context.Context, c *child) error {
 }
 func (s *Supervisor) Sample(ctx context.Context) (map[int64]string, error) {
 	states := map[int64]string{}
+	for id := range s.blocked {
+		states[id] = "queue_blocked"
+	}
 	var failure error
 	for id, c := range s.children {
 		select {
@@ -196,6 +211,13 @@ func (s *Supervisor) Sample(ctx context.Context) (map[int64]string, error) {
 		}
 		if e := s.sampleOne(ctx, c); e != nil {
 			states[id] = "unhealthy"
+			if errors.Is(e, ErrNodeBlocked) {
+				states[id] = "queue_blocked"
+				s.blocked[id] = c.spec
+				s.stopChild(c)
+				delete(s.children, id)
+				continue
+			}
 			if strings.HasPrefix(e.Error(), "queue blocked:") {
 				states[id] = "queue_blocked"
 				s.stopChild(c)
@@ -207,34 +229,63 @@ func (s *Supervisor) Sample(ctx context.Context) (map[int64]string, error) {
 	}
 	return states, failure
 }
+func (s *Supervisor) pauseRejected() error {
+	rejected, e := s.queue.RejectedNodes()
+	if e != nil {
+		return e
+	}
+	for id, c := range s.children {
+		if rejected[id] {
+			s.blocked[id] = c.spec
+			s.stopChild(c)
+			delete(s.children, id)
+		}
+	}
+	return nil
+}
 func (s *Supervisor) Run(ctx context.Context, client *Client) error {
-	defer s.Stop()
+	reportCtx, stopReports := context.WithCancel(ctx)
+	wake := make(chan struct{}, 1)
+	reportsDone := make(chan struct{})
+	go func() { defer close(reportsDone); client.RunReports(reportCtx, s.queue, wake) }()
+	defer func() { stopReports(); <-reportsDone; s.Stop() }()
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
-		cycle, cancel := context.WithTimeout(ctx, 10*time.Second)
-		d, e := client.Desired(cycle)
+		requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		d, e := client.Desired(requestCtx)
+		cancel()
 		if e == nil {
 			if e = s.Apply(ctx, d); e != nil {
-				cancel()
 				return e
 			}
 		}
 		s.Expire(time.Now())
-		states, sampleError := s.Sample(cycle)
+		if e = s.pauseRejected(); e != nil {
+			return e
+		}
+		sampleCtx, stopSample := context.WithTimeout(ctx, 5*time.Second)
+		states, sampleError := s.Sample(sampleCtx)
+		stopSample()
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+		s.Expire(time.Now())
+		statuses := []Status{}
 		for id, state := range states {
 			if c := s.children[id]; c != nil {
-				_ = client.Status(cycle, id, c.spec.Kind, state)
+				statuses = append(statuses, Status{id, c.spec.Kind, state})
+			} else if spec, ok := s.blocked[id]; ok {
+				statuses = append(statuses, Status{id, spec.Kind, state})
 			}
 		}
-		flushError := client.Flush(cycle, s.queue)
-		cancel()
+		statusCtx, stopStatus := context.WithTimeout(ctx, 3*time.Second)
+		client.Statuses(statusCtx, statuses)
+		stopStatus()
 		s.Expire(time.Now())
 		if sampleError != nil {
 			return sampleError
-		}
-		if flushError != nil {
-			slog.Warn("connector report pending; retrying from disk")
 		}
 		select {
 		case <-ctx.Done():

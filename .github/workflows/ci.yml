@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: chinahch/luma
-          ref: dfb1438826827d16158809b2b1588d985311408b # Luma protocol fixture contract
+          ref: d086ade74fd82cbfa90eec510d7a55707c22cf3b # Luma protocol fixture contract
           path: luma-contract
       - name: Generate matching Luma native protocol fixtures
         working-directory: luma-contract

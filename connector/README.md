@@ -33,11 +33,17 @@ sudo systemctl status caddy-connect.service
 
 Give every connector a unique local metrics port. Keep metrics on loopback. CF also requires the native Caddy worker with the same Machine to serve its loopback WS origin. MTG listens on its configured TCP port; permit that port in the host/provider firewall. The worker caps one desired response at 64 connectors; per-user MTG uses additional processes and ports.
 
-The lease is normally 90 seconds, checked after each bounded polling cycle (15-second tick, 10-second request budget). A panel outage stops connectors when the lease is no longer valid. Invalid desired state does not renew the lease. Child output is discarded to prevent credential-bearing vendor errors entering panel logs; inspect vendor connectivity separately using private configs only when needed.
+The lease is normally 90 seconds, checked during each bounded polling cycle (15-second tick; separate 5-second desired-state, 5-second sampling and 3-second status budgets). A panel outage stops connectors when the lease is no longer valid. Invalid desired state does not renew the lease. Reports run independently with a 10-second budget and at most eight concurrent requests; slow status calls cannot consume reporting time. Child output is discarded to prevent credential-bearing vendor errors entering panel logs; inspect vendor connectivity separately using private configs only when needed.
+
+## Reports requiring action
+
+Transient failures remain in `queue/` and retry fairly alongside other nodes. HTTP 400/403/404/409/422 responses preserve the original batch under `queue/rejected/<node-id>/`, with a separate `.reason` file. Only that node is paused and marked `queue_blocked`; unrelated users continue delivering reports. Malformed records whose node cannot be identified are preserved under `rejected/0` and produce an operator warning.
+
+Stop the worker before recovery. Inspect the rejection status and reconcile the panel's node identity, enablement and accounting record first. For a resolved rejection, move the original `.json` batch back to `queue/`, preserving its contents/name, then restart. Keep the `.reason` file for diagnosis. Do not rewrite batch IDs or discard unacknowledged usage to clear an error; a conflicting report requires accounting investigation.
 
 ## Change servers
 
-Stop this worker, migrate its private queue directory plus private worker configuration securely, and start exactly one replacement worker after restoring the panel database and master key. Preserve node IDs and Machine identity. Queued reports rejected after a node is disabled remain on disk; investigate rather than deleting pending usage. The main Caddy node still uses its separately documented legacy traffic sender.
+Stop this worker, migrate its entire private queue directory (including rejected reports) plus private worker configuration securely, and start exactly one replacement worker after restoring the panel database and master key. Preserve node IDs and Machine identity. The main Caddy node still uses its separately documented legacy traffic sender.
 
 ## Tests and limits
 

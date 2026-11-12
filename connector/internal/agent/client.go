@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -33,6 +35,9 @@ type Client struct {
 	token string
 	http  *http.Client
 }
+type statusError struct{ Code int }
+
+func (e *statusError) Error() string { return fmt.Sprintf("panel returned HTTP %d", e.Code) }
 
 func NewClient(cfg Config, token string) (*Client, error) {
 	u, e := url.Parse(cfg.PanelURL)
@@ -72,7 +77,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any) ([]
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("panel returned HTTP %d", resp.StatusCode)
+		return nil, &statusError{resp.StatusCode}
 	}
 	b, e := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
 	if e != nil || len(b) > 1<<20 {
@@ -110,28 +115,113 @@ func (c *Client) Flush(ctx context.Context, q *Spool) error {
 	if e != nil {
 		return e
 	}
-	for i, path := range paths {
-		if i >= 4 {
-			break
-		}
-		data, e := os.ReadFile(path)
-		if e != nil {
-			return e
-		}
-		var report struct {
-			Report
-			MachineID int64 `json:"machine_id"`
-		}
-		if json.Unmarshal(data, &report) != nil {
-			return errors.New("invalid queued report")
-		}
-		report.MachineID = c.cfg.MachineID
-		if _, e = c.request(ctx, "POST", "/api/v3/server/connector/report", report); e != nil {
-			return e
-		}
-		if e = q.Ack(path); e != nil {
-			return e
-		}
+	jobs := make(chan string, len(paths))
+	for _, p := range paths {
+		jobs <- p
+	}
+	close(jobs)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	failures := 0
+	for worker := 0; worker < 8; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for path := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				if e := c.deliver(ctx, q, path); e != nil {
+					mu.Lock()
+					failures++
+					mu.Unlock()
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if failures > 0 {
+		return fmt.Errorf("%d reports pending or requiring action", failures)
 	}
 	return nil
+}
+func (c *Client) deliver(ctx context.Context, q *Spool, path string) error {
+	data, e := os.ReadFile(path)
+	if e != nil {
+		return e
+	}
+	var report struct {
+		Report
+		MachineID int64 `json:"machine_id"`
+	}
+	if json.Unmarshal(data, &report) != nil || report.NodeID <= 0 || len(report.Entries) != 1 {
+		if e := q.Reject(path, 0, 400); e != nil {
+			return e
+		}
+		return errors.New("invalid queued report preserved for operator action")
+	}
+	report.MachineID = c.cfg.MachineID
+	if _, e = c.request(ctx, "POST", "/api/v3/server/connector/report", report); e != nil {
+		var status *statusError
+		if errors.As(e, &status) {
+			switch status.Code {
+			case 400, 403, 404, 409, 422:
+				if rejected := q.Reject(path, report.NodeID, status.Code); rejected != nil {
+					return rejected
+				}
+			}
+		}
+		return e
+	}
+	return q.Ack(path)
+}
+
+// RunReports owns its own delivery budget. Health/status latency cannot consume it.
+func (c *Client) RunReports(ctx context.Context, q *Spool, wake <-chan struct{}) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	for {
+		budget, cancel := context.WithTimeout(ctx, 10*time.Second)
+		e := c.Flush(budget, q)
+		cancel()
+		if e != nil && ctx.Err() == nil {
+			slog.Warn("connector reports pending or requiring operator action")
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-wake:
+		case <-ticker.C:
+		}
+	}
+}
+
+type Status struct {
+	NodeID      int64
+	Kind, State string
+}
+
+func (c *Client) Statuses(ctx context.Context, states []Status) {
+	jobs := make(chan Status, len(states))
+	for _, s := range states {
+		jobs <- s
+	}
+	close(jobs)
+	var wg sync.WaitGroup
+	for worker := 0; worker < 8; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for s := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				_ = c.Status(ctx, s.NodeID, s.Kind, s.State)
+			}
+		}()
+	}
+	wg.Wait()
 }

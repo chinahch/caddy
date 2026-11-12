@@ -8,6 +8,12 @@
 
 Still unverified: actual CF account/hostname attachment, external Telegram client sessions, Linux systemd/OpenRC host operation, ARM64 runtime/128 MiB capacity and production load. Native node traffic still uses the documented best-effort legacy sender. Automatic node upgrade remains disabled until logical-node readiness can be established.
 
+## Final review regression pass
+
+Independent read-only review identified six Important defects. Each was reproduced before its fix, then verified with the full affected suites: arbitrary custom-outbound secret projection/encryption; native Xray private-key error/log leakage on Start/Reload; MTG database/route failure refusing direct leases; sustained 64-node reporting and independent status/report budgets; per-node rejected-report preservation/isolation; concurrent native/Telegram subscriptions with a one-connection PostgreSQL pool. No reviewer Minor findings were deferred.
+
+The connector regression also stalls a real status HTTP request while durable reports continue delivering, and verifies that an identity with rejected reports does not execute a process. Mobile 390×844 landing layout was visually rechecked after stacking the heading/toolbar.
+
 ## Historical bootstrap checks
 
 
