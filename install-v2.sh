@@ -29,13 +29,15 @@ DEFAULT_HEALTH_PORT="65530"
 DEFAULT_KERNEL="singbox"
 DOWNLOAD_BASE="https://raw.githubusercontent.com/chinahch/caddy/main"
 CADDY_REPOSITORY="${CADDY_REPOSITORY:-chinahch/caddy}"
-CADDY_RELEASE_TAG="${CADDY_RELEASE_TAG:-v0.1.0-preview}"
+CADDY_RELEASE_TAG="${CADDY_RELEASE_TAG:-v0.1.1-preview}"
 CADDY_PACKAGE_URL="${CADDY_PACKAGE_URL:-}"
 CADDY_REQUIRED_VERSION="${CADDY_REQUIRED_VERSION:-dual-ip-v2}"
 
 MODE=""
 PANEL_URL=""
 TOKEN=""
+PROMPT_TOKEN=false
+REBIND=false
 MACHINE_ID=""
 NODE_ID=""
 NODE_TYPE=""
@@ -52,6 +54,8 @@ parse_args() {
       --mode) MODE="$2"; shift 2 ;;
       --panel|-a|--api) PANEL_URL="$2"; shift 2 ;;
       --token|-t) TOKEN="$2"; shift 2 ;;
+      --prompt-token) PROMPT_TOKEN=true; shift ;;
+      --rebind) REBIND=true; shift ;;
       --machine-id) MACHINE_ID="$2"; shift 2 ;;
       --node-id|-n) NODE_ID="$2"; shift 2 ;;
       --node-type|-T) NODE_TYPE="$2"; shift 2 ;;
@@ -147,6 +151,39 @@ validate_args() {
   fi
 
   return 0
+}
+
+read_connection_token() {
+  if [ "$PROMPT_TOKEN" = true ]; then
+    read -r -s -p '请粘贴机器令牌（输入不显示）: ' TOKEN </dev/tty || { err 'Interactive terminal required'; exit 1; }
+    printf '\n'
+  fi
+}
+
+rebind_existing_machine() {
+  [ "$MODE" = machine ] || { err 'Rebind requires Machine mode'; return 1; }
+  [ -x "$BINARY_PATH" ] && [ -x "$CLI_PATH" ] && [ -f "$CONFIG_FILE" ] && [ -f "$CREDENTIALS_FILE" ] || { err 'Complete existing installation required'; return 1; }
+  local stage
+  stage="$(mktemp -d)"
+  if ! prepare_connection_cli "$stage/caddyctl"; then rm -rf "$stage"; return 1; fi
+  if ! CADDY_MACHINE_TOKEN="$TOKEN" "$stage/caddyctl" machine-token --panel-url "$PANEL_URL" --machine-id "$MACHINE_ID" --config "$CONFIG_FILE" --credentials "$CREDENTIALS_FILE"; then
+    rm -rf "$stage"; err 'Credential update refused; panel URL and Machine ID must match the existing binding.'; return 1
+  fi
+  rm -rf "$stage"
+  start_service
+  log 'Machine connection updated; verify actual node connectivity in the panel.'
+}
+
+prepare_connection_cli() {
+  local name url package
+  name="$(select_package_name)"
+  url="https://github.com/${CADDY_REPOSITORY}/releases/download/${CADDY_RELEASE_TAG}/${name}"
+  [ -z "$CADDY_PACKAGE_URL" ] || url="$CADDY_PACKAGE_URL"
+  package="${1}.tar.gz"
+  curl -fsSL --retry 2 "$url" -o "$package" || return 1
+  verify_package "$package" "$name" "$url" || return 1
+  tar -xzOf "$package" caddyctl > "$1" || return 1
+  chmod 755 "$1"
 }
 
 # Never overwrite working Caddy and its Machine credentials on repeat install.
@@ -322,7 +359,7 @@ write_systemd_service() {
   log "Creating systemd service..."
   cat > "$SYSTEMD_SERVICE_PATH" <<EOF_SERVICE
 [Unit]
-Description=Caddy Web Server
+Description=Luma Caddy Node
 After=network-online.target
 Wants=network-online.target
 
@@ -502,7 +539,9 @@ EOF_UNINSTALL
 main() {
   parse_args "$@"
   check_root
+  read_connection_token
   validate_args
+  if [ "$REBIND" = true ]; then rebind_existing_machine; return; fi
   if preserve_existing_install; then return 0; fi
   install_deps
 

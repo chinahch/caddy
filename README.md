@@ -16,6 +16,14 @@
 
 见 [来源说明](docs/provenance.md)、[兼容矩阵](docs/compatibility-matrix.md) 和 [审计限制](DOMAIN-AUDIT-README.md)。
 
+## 节点服务器安装（无需 Docker）
+
+面板“机器管理 → 安装 / 接入”生成固定版本安装命令。节点以 root 执行，按提示粘贴机器令牌；安装器下载原生 Linux amd64/arm64 二进制及 SHA256 清单，校验后注册 systemd/OpenRC 服务。节点无需 Go、Python 或 Docker。面板地址必须能从节点访问，不能填写 localhost。
+
+预编译安装包见 [Releases](https://github.com/chinahch/caddy/releases)。版本 `v0.1.1-preview` 同时提供精确依赖清单、对应模块与 Go 源码、许可证/通知及构建来源。CF/MTProxy 连接器仍独立安装。
+
+重置机器令牌后选择“已有 Caddy：只更新本机器令牌并重启服务”。安装器校验并临时运行对应版本的 caddyctl，只更新面板地址/机器 ID 精确匹配的私有凭据，不改写 config.yml、不替换运行中的节点二进制；其他绑定保留。面板域名发生变化时应按迁移流程核对旧绑定，不能作为同一个地址自动更新。
+
 ## 从固定源码构建
 
 需要 Git、Python 3.12+、Go 1.26.10。推荐在 Linux 构建并执行测试。
@@ -38,7 +46,7 @@ cat dist/SHA256SUMS-* > dist/SHA256SUMS
 
 ## 安装与回滚
 
-先在隔离测试机器验证协议、配置、资源占用和断线行为。尚未发布 GitHub Release 时，默认下载安装命令不能成功；可将已构建包放在受控 HTTPS 地址，并显式提供其校验值。
+先在隔离测试机器验证协议、配置、资源占用和断线行为。可使用 Release 中的原生安装包，也可将自行构建包放在受控 HTTPS 地址，并显式提供其校验值。
 
 ```sh
 # 使用上一步在本机生成的包；ARM64 改用相应文件名。Alpine 先安装 bash。

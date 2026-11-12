@@ -1,0 +1,82 @@
+name: Native binary preview release
+on:
+  push:
+    branches: [main]
+    paths: ['install-v2.sh', 'patches/**', 'scripts/**', '.github/workflows/release.yml']
+  pull_request:
+    paths: ['install-v2.sh', 'patches/**', 'scripts/**', '.github/workflows/release.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  RELEASE_TAG: v0.1.1-preview
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: customization
+      - uses: actions/checkout@v4
+        with:
+          repository: cedar2025/Xboard-Node
+          ref: 0a29338e1f102a462363ce3527417029f89bab28
+          path: upstream
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: upstream/go.sum
+      - name: Prepare exact source and original MPL notice
+        run: |
+          python3 customization/scripts/prepare_source.py --upstream upstream --out prepared
+          cp customization/LICENSE prepared/LICENSE
+      - name: Verify CLI credential update and installer guards
+        run: |
+          (cd prepared && go test ./cmd/xbctl)
+          bash customization/tests/test-machine-installer.sh
+          bash customization/tests/test-checksum.sh
+          bash customization/tests/test-installer-guards.sh
+          bash customization/tests/test-release-retry.sh
+      - name: Build native package
+        run: python3 customization/scripts/build.py --source prepared --arch ${{ matrix.arch }} --out dist
+      - name: Archive exact dependency notices and corresponding sources
+        run: python3 customization/scripts/release_inventory.py --source prepared --custom customization --out dist --arch ${{ matrix.arch }}
+      - name: Check package contents
+        run: |
+          tar -tzf dist/caddy-linux-${{ matrix.arch }}v1.tar.gz | grep -x caddyctl
+          test -s dist/dependency-inventory-${{ matrix.arch }}.json
+          test -s dist/caddy-sources-notices-${{ matrix.arch }}.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.arch }}
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS-*
+            dist/build-info-*.json
+            dist/dependency-inventory-*.json
+  publish:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+          path: dist
+      - name: Publish complete immutable preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd dist
+          cat SHA256SUMS-amd64 SHA256SUMS-arm64 > SHA256SUMS
+          sha256sum caddy-sources-notices-*.tar.gz dependency-inventory-*.json build-info-*.json >> SHA256SUMS
+          sha256sum --check SHA256SUMS
+          bash ../scripts/publish_release.sh
