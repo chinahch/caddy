@@ -22,7 +22,11 @@ prepare_connection_cli(){ cp "$CLI_PATH" "$1";chmod +x "$1";printf '#!/bin/sh\ne
 start_service(){ touch "$tmp/restarted"; };cleanup_old_install(){ touch "$tmp/cleaned"; }
 write_service(){ touch "$tmp/unit-written"; };write_uninstall_script(){ :; }
 download_and_install_binary(){ touch "$tmp/downloaded"; }
-detect_os_family(){ echo linux; };systemctl(){ return 1; }
+detect_os_family(){ echo linux; };systemctl(){
+ if [ "$1" = cat ];then [ -f "$SYSTEMD_SERVICE_PATH" ] || return 1;cat "$SYSTEMD_SERVICE_PATH";[ ! -f "$tmp/drop-in" ] || cat "$tmp/drop-in";return 0;fi
+ if [ "$1" = show ];then [ ! -f "$tmp/effective-env" ] || cat "$tmp/effective-env";return 0;fi
+ return 1
+}
 # Fresh path: stage claim before installing binaries/services; no TTY or manual token.
 rm -f "$BINARY_PATH"; mv "$CLI_PATH" "$tmp/fixture-cli"
 prepare_connection_cli(){ cp "$tmp/fixture-cli" "$1";chmod +x "$1";printf '#!/bin/sh\necho dual-ip-v2\n' > "$2";chmod +x "$2"; }
@@ -38,6 +42,19 @@ rm -f "$tmp/restarted" "$tmp/downloaded" "$tmp/cleaned"
 main --mode machine --machine-id 7 --panel http://panel.example:8088 --enrollment-code aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa </dev/null
 [[ -f "$tmp/restarted" && ! -f "$tmp/downloaded" && ! -f "$tmp/cleaned" ]]
 cmp "$CONFIG_FILE" <(printf 'original-config\n');cmp "$CREDENTIALS_FILE" <(printf 'original-credentials\n')
+cp "$SYSTEMD_SERVICE_PATH" "$tmp/original-unit"
+for variant in inline extra_file drop_in effective;do
+ cp "$tmp/original-unit" "$SYSTEMD_SERVICE_PATH";rm -f "$tmp/drop-in" "$tmp/effective-env" "$TEST_CAPTURE"
+ case "$variant" in
+  inline) printf 'Environment=MACHINE_TOKEN=legacy\n' >> "$SYSTEMD_SERVICE_PATH";;
+  extra_file) printf 'EnvironmentFile=/private/legacy.env\n' >> "$SYSTEMD_SERVICE_PATH";;
+  drop_in) printf 'Environment=MACHINE_ID=999\n' > "$tmp/drop-in";;
+  effective) printf 'API_HOST=http://wrong.example\n' > "$tmp/effective-env";;
+ esac
+ if (main --mode machine --machine-id 7 --panel http://panel.example:8088 --enrollment-code aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) >/dev/null 2>&1;then echo "unsafe service environment accepted: $variant";exit 1;fi
+ [[ ! -f "$TEST_CAPTURE" ]] || { echo 'service environment refused after claim';exit 1; }
+done
+cp "$tmp/original-unit" "$SYSTEMD_SERVICE_PATH";rm -f "$tmp/drop-in" "$tmp/effective-env"
 # Claim/local validation failure never restarts or cleans an existing runtime.
 prepare_connection_cli(){ printf '#!/bin/sh\nexit 1\n' > "$1";chmod +x "$1"; }
 rm -f "$tmp/restarted"

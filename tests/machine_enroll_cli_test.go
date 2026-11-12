@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -118,6 +119,80 @@ func TestEnrollmentRefreshesExpiredPendingCommandWithoutChangingCandidate(t *tes
 	raw, _ := os.ReadFile(creds)
 	if !strings.Contains(string(raw), candidate) || calls != 2 {
 		t.Fatal("pending candidate not safely recovered")
+	}
+}
+
+func TestEnrollmentRefusesLegacyRuntimeOverridesBeforeClaim(t *testing.T) {
+	t.Setenv("CADDY_ENROLLMENT_CODE", strings.Repeat("a", 43))
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; fmt.Fprint(w, `{"ok":true,"machine_id":7}`) }))
+	defer srv.Close()
+	for _, key := range []string{"MACHINE_TOKEN", "MACHINE_ID", "API_HOST", "apiHost", "API_KEY", "apiKey", "NODE_ID", "nodeID"} {
+		t.Run(key, func(t *testing.T) {
+			args, cfg, creds := enrollmentArgs(t, srv.URL)
+			original := "instances:\n  - panel:\n      url: " + srv.URL + "\n    machine:\n      machine_id: 7\n      token_env: PRIVATE_TOKEN\n"
+			os.WriteFile(cfg, []byte(original), 0600)
+			os.WriteFile(creds, []byte("PRIVATE_TOKEN=old\n"+key+"=legacy\n"), 0600)
+			before := calls
+			if err := runMachineEnroll(args); err == nil {
+				t.Fatal("runtime override accepted")
+			}
+			if calls != before {
+				t.Fatal("override refused after revoking working credential")
+			}
+		})
+	}
+	args, _, _ := enrollmentArgs(t, srv.URL)
+	t.Setenv("MACHINE_TOKEN", "inherited-legacy")
+	before := calls
+	if err := runMachineEnroll(args); err == nil {
+		t.Fatal("inherited override accepted")
+	}
+	if calls != before {
+		t.Fatal("inherited override claimed")
+	}
+}
+
+func TestEnrollmentRetryRepairsInterruptedFreshMetadata(t *testing.T) {
+	t.Setenv("CADDY_ENROLLMENT_CODE", strings.Repeat("a", 43))
+	candidate := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Token string }
+		json.NewDecoder(r.Body).Decode(&body)
+		if candidate == "" {
+			candidate = body.Token
+		}
+		if candidate != body.Token {
+			t.Error("metadata retry changed candidate")
+		}
+		fmt.Fprint(w, `{"ok":true,"machine_id":7}`)
+	}))
+	defer srv.Close()
+	args, cfg, _ := enrollmentArgs(t, srv.URL)
+	meta := filepath.Join(filepath.Dir(cfg), "install-meta.json")
+	if err := os.Mkdir(meta, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := runMachineEnroll(args); err == nil {
+		t.Fatal("metadata failure not surfaced")
+	}
+	original, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal("expected published config before interrupted metadata", err)
+	}
+	if err = os.Remove(meta); err != nil {
+		t.Fatal(err)
+	}
+	if err = runMachineEnroll(args); err != nil {
+		t.Fatal("metadata retry failed", err)
+	}
+	info, err := os.Stat(meta)
+	if err != nil || !info.Mode().IsRegular() {
+		t.Fatal("retry left metadata missing")
+	}
+	after, _ := os.ReadFile(cfg)
+	if !bytes.Equal(original, after) {
+		t.Fatal("metadata retry rewrote configuration")
 	}
 }
 func TestEnrollmentFailurePreservesConfigAndReusesCandidate(t *testing.T) {

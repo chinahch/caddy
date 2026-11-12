@@ -10,6 +10,40 @@ import (
 	"strings"
 )
 
+// Runtime legacy overrides take precedence over YAML token_env references.
+// Refuse them before remote registration can revoke the working credential.
+func guardMachineRuntimeEnvironment(credentials string) error {
+	keys := map[string]bool{"MACHINE_TOKEN": true, "MACHINE_ID": true, "API_HOST": true, "apiHost": true, "API_KEY": true, "apiKey": true, "NODE_ID": true, "nodeID": true}
+	for key := range keys {
+		if os.Getenv(key) != "" {
+			return errors.New("legacy runtime identity environment override must be migrated before enrollment")
+		}
+	}
+	info, err := os.Lstat(credentials)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil || !info.Mode().IsRegular() {
+		return errors.New("regular private credentials file required before enrollment")
+	}
+	raw, err := os.ReadFile(credentials)
+	if err != nil {
+		return errors.New("cannot inspect private runtime credentials")
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		key, _, ok := strings.Cut(line, "=")
+		if ok && keys[strings.TrimSpace(key)] {
+			return errors.New("legacy runtime identity override in credentials file must be migrated before enrollment")
+		}
+	}
+	return nil
+}
+
 // Validate the exact binding before any credential rotation or enrollment claim.
 func machineCredentialKey(configPath, panel string, id int) (string, error) {
 	info, err := os.Lstat(configPath)
@@ -86,6 +120,9 @@ func runMachineToken(args []string) error {
 		return errors.New("cannot lock private credentials")
 	}
 	defer unlock()
+	if err := guardMachineRuntimeEnvironment(*credentials); err != nil {
+		return err
+	}
 	name, err := stageMachineCredential(*credentials, key, token)
 	if err != nil {
 		return err

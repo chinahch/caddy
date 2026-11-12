@@ -201,6 +201,22 @@ prepare_connection_cli() {
 }
 
 # Validate/stage private files before claiming; refusal never changes a runtime.
+validate_machine_service_environment() {
+  local effective environment
+  effective="$(systemctl cat "$SYSTEMD_SERVICE_NAME" 2>/dev/null)" || { err 'Cannot inspect effective service definition before enrollment'; return 1; }
+  if printf '%s\n' "$effective" | grep -Eq '^[[:space:]]*(Environment|PassEnvironment|UnsetEnvironment)[[:space:]]*=';then
+    err 'Custom service environment must be migrated before enrollment';return 1
+  fi
+  [ "$(printf '%s\n' "$effective" | grep -Ec '^[[:space:]]*EnvironmentFile[[:space:]]*=')" = 1 ] &&
+  [ "$(printf '%s\n' "$effective" | grep -Ec '^[[:space:]]*ExecStart[[:space:]]*=')" = 1 ] &&
+  printf '%s\n' "$effective" | grep -Fxq "EnvironmentFile=-${CREDENTIALS_FILE}" &&
+  printf '%s\n' "$effective" | grep -Fxq "ExecStart=${BINARY_PATH} -c ${CONFIG_FILE}" || { err 'Custom service override or environment file found; enrollment refused'; return 1; }
+  environment="$(systemctl show "$SYSTEMD_SERVICE_NAME" --property=Environment --value 2>/dev/null)" || { err 'Cannot inspect effective service environment';return 1; }
+  if printf '%s\n' "$environment" | grep -Eq '(^|[[:space:]"])(MACHINE_TOKEN|MACHINE_ID|API_HOST|apiHost|API_KEY|apiKey|NODE_ID|nodeID)=';then
+    err 'Effective service identity override must be migrated before enrollment';return 1
+  fi
+}
+
 automatic_machine_enrollment() {
   local existing=false stage entry observed
   if [ -e "$BINARY_PATH" ] || [ -L "$BINARY_PATH" ] || [ -e "$CLI_PATH" ] || [ -L "$CLI_PATH" ]; then
@@ -211,9 +227,12 @@ automatic_machine_enrollment() {
       grep -Fxq "command=\"${BINARY_PATH}\"" "$OPENRC_SERVICE_PATH" &&
       grep -Fxq "command_args=\"-c ${CONFIG_FILE}\"" "$OPENRC_SERVICE_PATH" &&
       grep -Fq "${CREDENTIALS_FILE}" "$OPENRC_SERVICE_PATH" || { err 'Existing OpenRC service binding is unknown; refusing enrollment'; return 1; }
+      [ ! -s "${CADDY_OPENRC_ENVIRONMENT:-/etc/conf.d/caddy}" ] || { err 'Custom OpenRC environment must be migrated before enrollment';return 1; }
+      if grep -Eq '^[[:space:]]*(export[[:space:]]+)?(MACHINE_TOKEN|MACHINE_ID|API_HOST|apiHost|API_KEY|apiKey|NODE_ID|nodeID)=' "$OPENRC_SERVICE_PATH";then err 'Custom OpenRC identity override found';return 1;fi
     elif [ -f "$SYSTEMD_SERVICE_PATH" ] && command -v systemctl >/dev/null 2>&1; then
       grep -Fxq "ExecStart=${BINARY_PATH} -c ${CONFIG_FILE}" "$SYSTEMD_SERVICE_PATH" &&
       grep -Fxq "EnvironmentFile=-${CREDENTIALS_FILE}" "$SYSTEMD_SERVICE_PATH" || { err 'Existing systemd service binding is unknown; refusing enrollment'; return 1; }
+      validate_machine_service_environment || return 1
     else
       err 'Existing native service definition required before enrollment'; return 1
     fi

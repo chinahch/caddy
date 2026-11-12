@@ -230,6 +230,9 @@ func runMachineEnroll(args []string) error {
 		return errors.New("cannot lock private credentials")
 	}
 	defer unlockCreds()
+	if err = guardMachineRuntimeEnvironment(*credentials); err != nil {
+		return err
+	}
 	var stagedCreds, stagedConfig, stagedMeta string
 	if existing {
 		stagedCreds, err = stageMachineCredential(*credentials, key, state.Token)
@@ -237,6 +240,22 @@ func runMachineEnroll(args []string) error {
 			return err
 		}
 		defer os.Remove(stagedCreds)
+		if state.Fresh && !state.Complete && *meta != "" {
+			f, e := os.CreateTemp(*root, ".machine-enrollment-meta-*")
+			if e != nil {
+				return errors.New("cannot stage pending installation metadata")
+			}
+			stagedMeta = f.Name()
+			f.Close()
+			defer os.Remove(stagedMeta)
+			rootConfig, e := loadWritableRootConfig(*configPath)
+			if e != nil {
+				return errors.New("cannot inspect pending installation metadata")
+			}
+			if e = writeInstallMetaVersioned(stagedMeta, rootConfig, "v0.1.2-preview", ""); e != nil {
+				return errors.New("cannot stage pending installation metadata")
+			}
+		}
 	} else {
 		stage, err := os.MkdirTemp(*root, ".machine-enroll-stage-*")
 		if err != nil {
@@ -268,10 +287,10 @@ func runMachineEnroll(args []string) error {
 		if err = os.Rename(stagedConfig, *configPath); err != nil {
 			return errors.New("cannot install claimed configuration; retry the identical command")
 		}
-		if *meta != "" {
-			if err = os.Rename(stagedMeta, *meta); err != nil {
-				return errors.New("cannot install metadata; retry the identical command")
-			}
+	}
+	if *meta != "" && stagedMeta != "" {
+		if err = os.Rename(stagedMeta, *meta); err != nil {
+			return errors.New("cannot install metadata; retry the identical command")
 		}
 	}
 	state.Complete = true
