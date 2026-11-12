@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 env:
-  RELEASE_TAG: v0.1.3-preview
+  RELEASE_TAG: v0.1.4-preview
 jobs:
   packages:
     runs-on: ubuntu-latest
