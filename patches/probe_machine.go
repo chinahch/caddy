@@ -61,6 +61,7 @@ func (o *Orchestrator) diagnose(ctx context.Context, t probe.Task) probe.Result 
 	job, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	runtime := "unassigned"
+	certificateState:="none"
 	o.mu.Lock()
 	if h, ok := o.nodes[int(p.NodeID)]; ok {
 		select {
@@ -71,11 +72,16 @@ func (o *Orchestrator) diagnose(ctx context.Context, t probe.Task) probe.Result 
 			if h.service != nil && h.service.ProbeKernelRunning() {
 				runtime = "running"
 			}
+			if h.service!=nil{certificateState=h.service.ProbeCertificateState()}
 		}
 	}
 	o.mu.Unlock()
 	start := time.Now()
 	r.Diagnostics = probe.CollectDiagnostics(job, p, runtime)
+	if certificateState=="pending"||certificateState=="failed"||certificateState=="ready"{
+		severity:="info";if certificateState=="failed"{severity="error"}else if certificateState=="pending"{severity="warning"}
+		r.Diagnostics.Findings=append(r.Diagnostics.Findings,probe.Finding{Code:"certificate_"+certificateState,Message:"TLS certificate state reported by the assigned node.",Severity:severity})
+	}
 	r.Latency = time.Since(start).Milliseconds()
 	if job.Err() != nil {
 		r.Error = "timeout"

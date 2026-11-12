@@ -46,6 +46,7 @@ def prepare(upstream: Path, destination: Path, audit: bool = False):
         run(sys.executable, '-X', 'utf8', str(ROOT / 'scripts/apply_protocols.py'), cwd=stage)
         run(sys.executable, '-X', 'utf8', str(ROOT / 'scripts/apply_machine.py'), cwd=stage)
         run(sys.executable, '-X', 'utf8', str(ROOT / 'scripts/apply_probes.py'), cwd=stage)
+        run(sys.executable, '-X', 'utf8', str(ROOT / 'scripts/apply_certificates.py'), cwd=stage)
         shutil.copyfile(ROOT / 'tests/machine_enrollment_runtime_test.go', stage / 'internal/machine/caddy_enrollment_test.go')
         shutil.copyfile(ROOT / 'tests/machine_enroll_connector_test.go', stage / 'cmd/xbctl/caddy_enroll_connector_test.go')
         for name, target in [('xray','kernel/xray'), ('singbox','kernel/singbox'), ('client','panel')]:
@@ -92,9 +93,10 @@ def prepare(upstream: Path, destination: Path, audit: bool = False):
             text=text.replace(old,new,1)
         cli.write_text(text, encoding='utf-8', newline='\n')
         shutil.copyfile(ROOT / 'tests/cli_roundtrip_test.go',stage / 'cmd/xbctl/caddy_config_roundtrip_test.go')
-        features = ['xhttp', 'dual-ip-strict', 'caddy-cli', 'landing-v1', 'machine-enrollment-v1', 'proxy-probes-v1', 'physical-public-addresses-v1']
+        features = ['xhttp', 'dual-ip-strict', 'caddy-cli', 'landing-v1', 'machine-enrollment-v1', 'proxy-probes-v1', 'physical-public-addresses-v1', 'certificate-lifecycle-v1']
         inputs = ['scripts/apply_probes.py', 'patches/probe.go', 'patches/probe_diagnostics.go', 'patches/physical_addresses.go', 'patches/probe_panel.go', 'patches/probe_machine.go', 'patches/probe_xray.go', 'patches/probe_singbox.go', 'scripts/apply_machine.py', 'patches/machine_enroll.go', 'patches/machine_token.go', 'patches/machine_lock_unix.go', 'patches/machine_lock_windows.go', 'patches/xhttp-v2-fixes.patch', 'patches/xhttp_tls_v2_test.go',
                   'scripts/apply_ipfamily.py', 'patches/strict_ipfamily.py', 'scripts/prepare_source.py', 'scripts/apply_landing.py', 'scripts/apply_protocols.py']
+        inputs += ['scripts/apply_certificates.py','patches/certificate_state.go','patches/certificate_service.go']
         if audit:
             shutil.copytree(ROOT / 'audit-overlay/internal/domainaudit', stage / 'internal/domainaudit')
             run(sys.executable, '-X', 'utf8', str(ROOT / 'scripts/patch_source.py'), str(stage))
