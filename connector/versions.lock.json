@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "mtg": {
+    "version": "v2.3.0",
+    "license": "MIT",
+    "assets": {
+      "amd64": {
+        "url": "https://github.com/9seconds/mtg/releases/download/v2.3.0/mtg-2.3.0-linux-amd64.tar.gz",
+        "sha256": "11c038ea5eeebd5d49148048975c24f7b0c4fa4c1cf4f15a2410203e2da01812",
+        "archive": true
+      },
+      "arm64": {
+        "url": "https://github.com/9seconds/mtg/releases/download/v2.3.0/mtg-2.3.0-linux-arm64.tar.gz",
+        "sha256": "86e0fc6f50bfb453b7a6e8b91497c6661a7d64a3f607828e0e42f534d795ac5a",
+        "archive": true
+      }
+    }
+  },
+  "cloudflared": {
+    "version": "2026.10.7",
+    "license": "Apache-2.0",
+    "assets": {
+      "amd64": {
+        "url": "https://github.com/cloudflare/cloudflared/releases/download/2026.10.7/cloudflared-linux-amd64",
+        "sha256": "1f99fb518b83dec2ba8d870a7cc991d82a77e6196295a3d2754ba17ab9f91872",
+        "archive": false
+      },
+      "arm64": {
+        "url": "https://github.com/cloudflare/cloudflared/releases/download/2026.10.7/cloudflared-linux-arm64",
+        "sha256": "3df43aedc9ff291d1735b5cb576cb97e0b157488796db2e32b28aecabb445775",
+        "archive": false
+      }
+    }
+  }
+}

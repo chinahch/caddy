@@ -21,6 +21,16 @@ jobs:
         with:
           go-version: '1.26.10'
           cache-dependency-path: upstream/go.sum
+      - uses: actions/checkout@v4
+        with:
+          repository: chinahch/luma
+          ref: d086ade74fd82cbfa90eec510d7a55707c22cf3b # Luma protocol fixture contract
+          path: luma-contract
+      - name: Generate matching Luma native protocol fixtures
+        working-directory: luma-contract
+        env:
+          LUMA_PROTOCOL_FIXTURES: ${{ github.workspace }}/luma-fixtures.json
+        run: go test ./internal/protocol -run TestExportPinnedCoreFixtures
       - name: Python source preparation and reproducible archive tests
         working-directory: customization
         env:
@@ -42,10 +52,35 @@ jobs:
           python3 customization/scripts/prepare_source.py --upstream upstream --out prepared "${args[@]}"
       - name: Test source (including optional audit on Linux)
         working-directory: prepared
-        run: go test -count=1 ./internal/... ./cmd/xbctl
+        env:
+          LUMA_PROTOCOL_FIXTURES: ${{ github.workspace }}/luma-fixtures.json
+          LUMA_DATA_PLANE_TESTS: '1'
+        run: go test -tags 'with_quic with_utls' -count=1 ./internal/... ./cmd/xbctl
       - name: Build Linux amd64
         run: python3 customization/scripts/build.py --source prepared --arch amd64 --out dist
       - name: Smoke test compiled binary
         run: |
           dist/amd64/caddy -v
           dist/amd64/caddyctl version
+  connectors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+          cache: false
+      - name: Download and verify pinned official connector assets
+        run: python3 scripts/fetch_connectors.py --arch amd64 --out vendor-bin
+      - name: Test worker and real MTG config/loopback metrics
+        env:
+          MTG_TEST_BINARY: ${{ github.workspace }}/vendor-bin/mtg
+        run: |
+          go -C connector test -race -count=1 ./...
+          go -C connector vet ./...
+          vendor-bin/cloudflared tunnel run --help > /tmp/cloudflared-help
+          grep -q -- '--token-file' /tmp/cloudflared-help
+      - name: Cross-build connector supervisor
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go -C connector build -trimpath -o ../dist/luma-connect-amd64 ./cmd/luma-connect
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go -C connector build -trimpath -o ../dist/luma-connect-arm64 ./cmd/luma-connect

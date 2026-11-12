@@ -4,3 +4,4 @@
 - Upstream revision and patch lineage are recorded in source.lock.json and docs/provenance.md. Source changes must keep applicable upstream notices.
 - sing-box, Xray, certmagic and other transitive Go dependencies are resolved from the fixed upstream go.mod/go.sum; they retain their respective licenses. The MPL license for this repository does not replace their licenses.
 - Before distributing binary releases, generate and ship the complete dependency license/notices inventory for that exact build. The initial repository intentionally provides no automatically published production binary release.
+- The connector fetcher downloads official [mtg v2.3.0 (MIT)](https://github.com/9seconds/mtg/blob/v2.3.0/LICENSE) and [cloudflared 2026.10.7 (Apache-2.0)](https://github.com/cloudflare/cloudflared/blob/2026.10.7/LICENSE) using pinned SHA256 assets. They are separate executables, not relicensed by this repository. Preserve their notices when redistributing them.

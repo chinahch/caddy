@@ -26,7 +26,7 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         manifest = json.loads((self.dest / 'build-source.json').read_text())
         self.assertEqual(manifest['upstream_commit'], '0a29338e1f102a462363ce3527417029f89bab28')
-        self.assertEqual(manifest['features'], ['xhttp', 'dual-ip-strict', 'caddy-cli'])
+        self.assertEqual(manifest['features'], ['xhttp', 'dual-ip-strict', 'caddy-cli', 'landing-v1'])
         before = (self.dest / 'internal/config/config.go').read_bytes()
         result = self.run_prepare(os.environ['CADDY_TEST_UPSTREAM'])
         self.assertNotEqual(result.returncode, 0)

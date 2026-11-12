@@ -1,0 +1,7 @@
+{
+  "panel_url": "https://panel.example.com",
+  "machine_id": 1,
+  "token_env": "LUMA_NODE_TOKEN",
+  "bin_dir": "/usr/local/lib/caddy-connect",
+  "state_dir": "/var/lib/caddy-connect"
+}

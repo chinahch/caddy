@@ -1,0 +1,29 @@
+[Unit]
+Description=Luma Cloudflare and MTProxy connectors
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=caddy-connect
+Group=caddy-connect
+EnvironmentFile=/etc/caddy-connect/worker.env
+ExecStart=/usr/local/bin/luma-connect --config /etc/caddy-connect/connect.json
+StateDirectory=caddy-connect
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=10
+KillMode=control-group
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

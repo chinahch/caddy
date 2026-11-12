@@ -10,6 +10,8 @@
 - 双 IP 补丁来源：原工程历史提交 `2a5ae50eed9bb400995601293a4ebd484920b0fd`，不能只复制当前 main 重建。
 - 上游：[cedar2025/Xboard-Node](https://github.com/cedar2025/Xboard-Node)，固定 `0a29338e1f102a462363ce3527417029f89bab28`。
 - Node / Machine、多逻辑节点、sing-box / Xray、XHTTP 与内核原生 IP 选择修复。
+- Luma `landing-v1` / `protocols-v1` 配置契约，完整 Xray 出站传输参数、sing-box detour、显式内核选择，以及 AnyTLS REALITY 修复。
+- [独立连接器](connector/README.md)：受控 cloudflared 与每用户 mtg，配置租约、私密文件、落盘批次与去重上报；原生节点仍使用单独标记的旧上报方式。
 - 可选域名审计默认不编入；使用 `--audit` 才编入，并仍需显式环境变量才开启。它独立于计费统计，不保证记录完整。
 
 见 [来源说明](docs/provenance.md)、[兼容矩阵](docs/compatibility-matrix.md) 和 [审计限制](DOMAIN-AUDIT-README.md)。
@@ -39,11 +41,11 @@ cat dist/SHA256SUMS-* > dist/SHA256SUMS
 先在隔离测试机器验证协议、配置、资源占用和断线行为。尚未发布 GitHub Release 时，默认下载安装命令不能成功；可将已构建包放在受控 HTTPS 地址，并显式提供其校验值。
 
 ```sh
-# 检查 SHA256 与源码来源后，仅在测试机执行。Alpine 先确保已安装 bash。
-export CADDY_PACKAGE_URL='https://downloads.example.com/caddy-linux-amd64v1.tar.gz'
-export CADDY_PACKAGE_SHA256='填入实际64位SHA256'
+# 使用上一步在本机生成的包；ARM64 改用相应文件名。Alpine 先安装 bash。
+export CADDY_PACKAGE_URL="file://$PWD/dist/caddy-linux-amd64v1.tar.gz"
+export CADDY_PACKAGE_SHA256="$(sha256sum dist/caddy-linux-amd64v1.tar.gz | cut -d' ' -f1)"
 bash install-v2.sh --mode node --panel https://panel.example.com \
-  --token YOUR_TEST_NODE_TOKEN --node-id 1 --node-type vless
+  --token YOUR_TEST_NODE_TOKEN --node-id 1 --node-type vless --kernel xray
 ```
 
 Machine 模式改为 `--mode machine --machine-id 1`，使用面板生成的 Machine 令牌。重复安装保留现有 Machine 配置与凭据；旧版本自动升级目前禁用，因为上游进程 `/healthz` 不能证明各逻辑节点的内核已就绪。请在隔离机器验证后安排手工升级与回滚。首次安装先校验 SHA256、内容和版本，再安装二进制。未提供独立 SHA256 时从同路径 `SHA256SUMS` 读取；它提供传输完整性校验，不等同于独立签名或来源真实性证明。
@@ -63,6 +65,8 @@ bash tests/test-install-v2.sh
 ```
 
 本机验证：Linux amd64/arm64 交叉编译通过；配置、tracker、双内核、控制面测试通过。审查修复后，CLI YAML round-trip、安装保护/校验/配置保留回归通过（Windows Git Bash）；Linux systemd/OpenRC 与 128 MiB ARM64 运行尚未验证。以 CI 和后续实际运行结果为准，不能把交叉编译通过视为兼容验收。
+
+新增本机验证：23 个 Xray 原生变体和 6 个 sing-box 组合均完成真实本地代理回显往返，包括六种 ENC、AnyTLS REALITY、SS2022、Hysteria2 和 XHTTP/H3。连接器测试覆盖真实进程启动/租约停止，固定 mtg 接受生成配置并提供本机指标。此结果不代替 CF 账户、Telegram 外网客户端或生产网络验收。完整功能和部署条件见 [Luma 协议文档](https://github.com/chinahch/luma/blob/main/docs/protocols-exits.md)。
 
 旧上报使用窗口增量，失败量只恢复到内存，没有可靠持久批次身份。因此 Luma 的旧协议适配明确标记 `legacy`，不保证重试去重与断线不丢量。新增可靠批次 API 不表示当前节点已自动切换到它。
 

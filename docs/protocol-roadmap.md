@@ -1,6 +1,6 @@
 # Protocol and landing roadmap
 
-These are requested capabilities under development, not a declaration that the current preview has passed all of them.
+The feature branch implements the native presets, subscriptions, encrypted landing import/routing and companion CF/MTG configuration below. Native loopback data-plane tests pass; CF account attachment and external Telegram connectivity still require environment-specific validation. See Luma docs/protocols-exits.md and Caddy connector/README.md for deployment and exact limits.
 
 1. SOCKS5
 2. VLESS + REALITY

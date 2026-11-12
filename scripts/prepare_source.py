@@ -42,6 +42,15 @@ def prepare(upstream: Path, destination: Path, audit: bool = False):
         shutil.copyfile(ROOT / 'patches/xhttp_tls_v2_test.go', stage / 'internal/kernel/xray/xhttp_tls_v2_test.go')
         run(sys.executable, '-X', 'utf8', str(ROOT / 'scripts/apply_ipfamily.py'), cwd=stage)
         run(sys.executable, '-X', 'utf8', str(ROOT / 'patches/strict_ipfamily.py'), cwd=stage)
+        run(sys.executable, '-X', 'utf8', str(ROOT / 'scripts/apply_landing.py'), cwd=stage)
+        run(sys.executable, '-X', 'utf8', str(ROOT / 'scripts/apply_protocols.py'), cwd=stage)
+        for name, target in [('xray','kernel/xray'), ('singbox','kernel/singbox'), ('client','panel')]:
+            shutil.copyfile(ROOT / f'tests/landing_{name}_test.go', stage / f'internal/{target}/luma_landing_test.go')
+        for name in ['xray','singbox']:
+            shutil.copyfile(ROOT / f'tests/preset_{name}_test.go', stage / f'internal/kernel/{name}/luma_presets_test.go')
+            shutil.copyfile(ROOT / f'tests/dataplane_{name}_test.go', stage / f'internal/kernel/{name}/luma_dataplane_test.go')
+        shutil.copyfile(ROOT / 'tests/protocol_kernel_test.go', stage / 'internal/model/luma_kernel_test.go')
+        shutil.copyfile(ROOT / 'tests/private_errors_xray_test.go',stage / 'internal/kernel/xray/luma_private_errors_test.go')
         cli = stage / 'cmd/xbctl/main.go'
         text = cli.read_text(encoding='utf-8')
         for old, new in {
@@ -69,9 +78,9 @@ def prepare(upstream: Path, destination: Path, audit: bool = False):
             text=text.replace(old,new,1)
         cli.write_text(text, encoding='utf-8', newline='\n')
         shutil.copyfile(ROOT / 'tests/cli_roundtrip_test.go',stage / 'cmd/xbctl/caddy_config_roundtrip_test.go')
-        features = ['xhttp', 'dual-ip-strict', 'caddy-cli']
+        features = ['xhttp', 'dual-ip-strict', 'caddy-cli', 'landing-v1']
         inputs = ['patches/xhttp-v2-fixes.patch', 'patches/xhttp_tls_v2_test.go',
-                  'scripts/apply_ipfamily.py', 'patches/strict_ipfamily.py', 'scripts/prepare_source.py']
+                  'scripts/apply_ipfamily.py', 'patches/strict_ipfamily.py', 'scripts/prepare_source.py', 'scripts/apply_landing.py', 'scripts/apply_protocols.py']
         if audit:
             shutil.copytree(ROOT / 'audit-overlay/internal/domainaudit', stage / 'internal/domainaudit')
             run(sys.executable, '-X', 'utf8', str(ROOT / 'scripts/patch_source.py'), str(stage))
