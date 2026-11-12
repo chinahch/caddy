@@ -53,6 +53,12 @@ def prepare(upstream: Path, destination: Path, audit: bool = False):
         shutil.copyfile(ROOT / 'tests/private_errors_xray_test.go',stage / 'internal/kernel/xray/luma_private_errors_test.go')
         cli = stage / 'cmd/xbctl/main.go'
         text = cli.read_text(encoding='utf-8')
+        anchor = 'case "bind":'
+        if text.count(anchor) != 1:
+            raise ValueError('upstream CLI command anchor changed')
+        text = text.replace(anchor, 'case "machine-token":\n\t\treturn runMachineToken(args[1:])\n\t' + anchor)
+        shutil.copyfile(ROOT / 'patches/machine_token.go', stage / 'cmd/xbctl/caddy_machine_token.go')
+        shutil.copyfile(ROOT / 'tests/machine_token_cli_test.go', stage / 'cmd/xbctl/caddy_machine_token_test.go')
         for old, new in {
             '/etc/xboard-node': '/etc/caddy',
             '/usr/local/bin/xboard-node': '/usr/local/bin/caddy',
