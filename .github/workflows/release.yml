@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 env:
-  RELEASE_TAG: v0.1.1-preview
+  RELEASE_TAG: v0.1.2-preview
 jobs:
   packages:
     runs-on: ubuntu-latest
@@ -35,8 +35,9 @@ jobs:
           cp customization/LICENSE prepared/LICENSE
       - name: Verify CLI credential update and installer guards
         run: |
-          (cd prepared && go test ./cmd/xbctl)
+          (cd prepared && go test ./cmd/xbctl ./internal/machine)
           bash customization/tests/test-machine-installer.sh
+          bash customization/tests/test-enrollment-installer.sh
           bash customization/tests/test-checksum.sh
           bash customization/tests/test-installer-guards.sh
           bash customization/tests/test-release-retry.sh

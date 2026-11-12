@@ -18,11 +18,15 @@
 
 ## 节点服务器安装（无需 Docker）
 
-面板“机器管理 → 安装 / 接入”生成固定版本安装命令。节点以 root 执行，按提示粘贴机器令牌；安装器下载原生 Linux amd64/arm64 二进制及 SHA256 清单，校验后注册 systemd/OpenRC 服务。节点无需 Go、Python 或 Docker。面板地址必须能从节点访问，不能填写 localhost。
+面板“服务器 → 安装 / 接入”生成一条 15 分钟有效的固定版本安装命令。节点以 root 执行，无需提示选择或手工复制令牌。安装器下载原生 Linux amd64/arm64 二进制及 SHA256 清单；原生 CLI 在本机生成私有凭据，使用短期接入码自动登记，再注册 systemd/OpenRC 服务。节点无需 Go、Python 或 Docker。面板地址必须能从节点访问，不能填写 localhost。支持 HTTP 与 HTTPS 面板地址，生产部署推荐 HTTPS。
 
-预编译安装包见 [Releases](https://github.com/chinahch/caddy/releases)。版本 `v0.1.1-preview` 同时提供精确依赖清单、对应模块与 Go 源码、许可证/通知及构建来源。CF/MTProxy 连接器仍独立安装。
+预编译安装包见 [Releases](https://github.com/chinahch/caddy/releases)。版本 `v0.1.2-preview` 同时提供精确依赖清单、对应模块与 Go 源码、许可证/通知及构建来源。CF/MTProxy 连接器仍独立安装。
 
-重置机器令牌后选择“已有 Caddy：只更新本机器令牌并重启服务”。安装器校验并临时运行对应版本的 caddyctl，只更新面板地址/机器 ID 精确匹配的私有凭据，不改写 config.yml、不替换运行中的节点二进制；其他绑定保留。面板域名发生变化时应按迁移流程核对旧绑定，不能作为同一个地址自动更新。
+相同命令自动区分首次安装和已有服务器重新接入。已有安装必须与面板地址和机器 ID 精确匹配，私有凭据不能被其他绑定共用或被内联令牌覆盖。校验和接入失败时保留原程序、配置及凭据；接入成功后保留 config.yml 与其他凭据，安装已校验的新原生程序并重启原服务。域名迁移、未知 Caddy Web Server、未知服务及不明残留文件均拒绝自动覆盖。
+
+服务器即使尚未绑定逻辑节点，也在首次发现后立即上报状态。后续按面板的 10 秒间隔发现新节点、拉取配置并上报心跳；协议或内核变更会重建对应服务，临时启动失败会在下一次发现时重试。在线仅表示服务器连通，不能代替各节点实际代理连接验收。
+
+[接入与恢复说明](docs/enrollment.md) 记录私有重试状态与失败恢复。CF/MTProxy 的独立连接器仍按 [连接器文档](connector/README.md) 安装；已安装且匹配本机器的连接器会在接入前明确拒绝轮换，以免静默使其旧凭据失效。
 
 ## 从固定源码构建
 
@@ -56,7 +60,7 @@ bash install-v2.sh --mode node --panel https://panel.example.com \
   --token YOUR_TEST_NODE_TOKEN --node-id 1 --node-type vless --kernel xray
 ```
 
-Machine 模式改为 `--mode machine --machine-id 1`，使用面板生成的 Machine 令牌。重复安装保留现有 Machine 配置与凭据；旧版本自动升级目前禁用，因为上游进程 `/healthz` 不能证明各逻辑节点的内核已就绪。请在隔离机器验证后安排手工升级与回滚。首次安装先校验 SHA256、内容和版本，再安装二进制。未提供独立 SHA256 时从同路径 `SHA256SUMS` 读取；它提供传输完整性校验，不等同于独立签名或来源真实性证明。
+正常 Machine 模式直接使用面板生成的 `--mode machine --machine-id ID --enrollment-code CODE` 命令。上面的手工 Node 示例仅用于独立节点兼容测试。旧的非接入安装路径仍保留其重复安装保护和升级限制。接入路径在认领前校验 SHA256、内容、版本、服务与身份，成功后替换原生程序。未提供独立 SHA256 时从同路径 `SHA256SUMS` 读取；它提供传输完整性校验，不等同于独立签名或来源真实性证明。
 
 服务路径：`/etc/caddy/config.yml`、`/etc/caddy/credentials.env`、`/usr/local/bin/caddy`、`/usr/local/bin/caddyctl`；systemd `caddy.service` 或 OpenRC `caddy`。避免与真正的 Caddy Web Server 共用这些路径。
 
@@ -70,6 +74,7 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 bash tests/test-checksum.sh
 bash tests/test-installer-guards.sh
 bash tests/test-install-v2.sh
+bash tests/test-enrollment-installer.sh
 ```
 
 本机验证：Linux amd64/arm64 交叉编译通过；配置、tracker、双内核、控制面测试通过。审查修复后，CLI YAML round-trip、安装保护/校验/配置保留回归通过（Windows Git Bash）；Linux systemd/OpenRC 与 128 MiB ARM64 运行尚未验证。以 CI 和后续实际运行结果为准，不能把交叉编译通过视为兼容验收。

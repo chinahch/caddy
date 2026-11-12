@@ -44,6 +44,9 @@ def prepare(upstream: Path, destination: Path, audit: bool = False):
         run(sys.executable, '-X', 'utf8', str(ROOT / 'patches/strict_ipfamily.py'), cwd=stage)
         run(sys.executable, '-X', 'utf8', str(ROOT / 'scripts/apply_landing.py'), cwd=stage)
         run(sys.executable, '-X', 'utf8', str(ROOT / 'scripts/apply_protocols.py'), cwd=stage)
+        run(sys.executable, '-X', 'utf8', str(ROOT / 'scripts/apply_machine.py'), cwd=stage)
+        shutil.copyfile(ROOT / 'tests/machine_enrollment_runtime_test.go', stage / 'internal/machine/caddy_enrollment_test.go')
+        shutil.copyfile(ROOT / 'tests/machine_enroll_connector_test.go', stage / 'cmd/xbctl/caddy_enroll_connector_test.go')
         for name, target in [('xray','kernel/xray'), ('singbox','kernel/singbox'), ('client','panel')]:
             shutil.copyfile(ROOT / f'tests/landing_{name}_test.go', stage / f'internal/{target}/luma_landing_test.go')
         for name in ['xray','singbox']:
@@ -56,8 +59,10 @@ def prepare(upstream: Path, destination: Path, audit: bool = False):
         anchor = 'case "bind":'
         if text.count(anchor) != 1:
             raise ValueError('upstream CLI command anchor changed')
-        text = text.replace(anchor, 'case "machine-token":\n\t\treturn runMachineToken(args[1:])\n\t' + anchor)
-        shutil.copyfile(ROOT / 'patches/machine_token.go', stage / 'cmd/xbctl/caddy_machine_token.go')
+        text = text.replace(anchor, 'case "machine-enroll":\n\t\treturn runMachineEnroll(args[1:])\n\tcase "machine-token":\n\t\treturn runMachineToken(args[1:])\n\t' + anchor)
+        for name in ['machine_token', 'machine_enroll']:
+            shutil.copyfile(ROOT / f'patches/{name}.go', stage / f'cmd/xbctl/caddy_{name}.go')
+            shutil.copyfile(ROOT / f'tests/{name}_cli_test.go', stage / f'cmd/xbctl/caddy_{name}_test.go')
         for platform in ['unix','windows']:
             shutil.copyfile(ROOT / f'patches/machine_lock_{platform}.go',stage / f'cmd/xbctl/caddy_machine_lock_{platform}.go')
         shutil.copyfile(ROOT / 'tests/machine_token_cli_test.go', stage / 'cmd/xbctl/caddy_machine_token_test.go')
@@ -86,16 +91,16 @@ def prepare(upstream: Path, destination: Path, audit: bool = False):
             text=text.replace(old,new,1)
         cli.write_text(text, encoding='utf-8', newline='\n')
         shutil.copyfile(ROOT / 'tests/cli_roundtrip_test.go',stage / 'cmd/xbctl/caddy_config_roundtrip_test.go')
-        features = ['xhttp', 'dual-ip-strict', 'caddy-cli', 'landing-v1']
-        inputs = ['patches/xhttp-v2-fixes.patch', 'patches/xhttp_tls_v2_test.go',
+        features = ['xhttp', 'dual-ip-strict', 'caddy-cli', 'landing-v1', 'machine-enrollment-v1']
+        inputs = ['scripts/apply_machine.py', 'patches/machine_enroll.go', 'patches/machine_token.go', 'patches/machine_lock_unix.go', 'patches/machine_lock_windows.go', 'patches/xhttp-v2-fixes.patch', 'patches/xhttp_tls_v2_test.go',
                   'scripts/apply_ipfamily.py', 'patches/strict_ipfamily.py', 'scripts/prepare_source.py', 'scripts/apply_landing.py', 'scripts/apply_protocols.py']
         if audit:
             shutil.copytree(ROOT / 'audit-overlay/internal/domainaudit', stage / 'internal/domainaudit')
             run(sys.executable, '-X', 'utf8', str(ROOT / 'scripts/patch_source.py'), str(stage))
             features.append('domain-audit-opt-in')
             inputs += ['scripts/patch_source.py', 'audit-overlay/internal/domainaudit/audit.go']
-        go_files = [str(p) for p in (stage / 'internal').rglob('*.go')]
-        run('gofmt', '-w', str(cli), *go_files)
+        go_files = [str(p) for folder in ['internal', 'cmd'] for p in (stage / folder).rglob('*.go')]
+        run('gofmt', '-w', *go_files)
         manifest = {**LOCK, 'source_date_epoch': epoch, 'features': features,
                     'customization_sha256': {p: hashlib.sha256((ROOT / p).read_bytes()).hexdigest() for p in inputs}}
         (stage / 'build-source.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')

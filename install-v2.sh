@@ -29,13 +29,14 @@ DEFAULT_HEALTH_PORT="65530"
 DEFAULT_KERNEL="singbox"
 DOWNLOAD_BASE="https://raw.githubusercontent.com/chinahch/caddy/main"
 CADDY_REPOSITORY="${CADDY_REPOSITORY:-chinahch/caddy}"
-CADDY_RELEASE_TAG="${CADDY_RELEASE_TAG:-v0.1.1-preview}"
+CADDY_RELEASE_TAG="${CADDY_RELEASE_TAG:-v0.1.2-preview}"
 CADDY_PACKAGE_URL="${CADDY_PACKAGE_URL:-}"
 CADDY_REQUIRED_VERSION="${CADDY_REQUIRED_VERSION:-dual-ip-v2}"
 
 MODE=""
 PANEL_URL=""
 TOKEN=""
+ENROLLMENT_CODE=""
 PROMPT_TOKEN=false
 REBIND=false
 MACHINE_ID=""
@@ -54,6 +55,7 @@ parse_args() {
       --mode) MODE="$2"; shift 2 ;;
       --panel|-a|--api) PANEL_URL="$2"; shift 2 ;;
       --token|-t) TOKEN="$2"; shift 2 ;;
+      --enrollment-code) ENROLLMENT_CODE="$2"; shift 2 ;;
       --prompt-token) PROMPT_TOKEN=true; shift ;;
       --rebind) REBIND=true; shift ;;
       --machine-id) MACHINE_ID="$2"; shift 2 ;;
@@ -139,7 +141,12 @@ install_deps() {
 
 validate_args() {
   [ -z "$PANEL_URL" ] && { err "--panel is required"; exit 1; }
-  [ -z "$TOKEN" ] && { err "--token is required"; exit 1; }
+  if [ -n "$ENROLLMENT_CODE" ]; then
+    [ "$MODE" = machine ] && [ -z "$TOKEN" ] && [ "$PROMPT_TOKEN" = false ] && [ "$REBIND" = false ] || { err "Enrollment requires automatic Machine mode without manual credential options"; exit 1; }
+    [[ "$ENROLLMENT_CODE" =~ ^[A-Za-z0-9_-]{43}$ ]] || { err "Invalid enrollment code"; exit 1; }
+  else
+    [ -n "$TOKEN" ] || { err "--token or --enrollment-code is required"; exit 1; }
+  fi
 
   if [ "$MODE" = "machine" ]; then
     [ -z "$MACHINE_ID" ] && { err "--machine-id is required"; exit 1; }
@@ -184,6 +191,65 @@ prepare_connection_cli() {
   verify_package "$package" "$name" "$url" || return 1
   tar -xzOf "$package" caddyctl > "$1" || return 1
   chmod 755 "$1"
+  if [ -n "${2:-}" ]; then
+    tar -xzOf "$package" caddy > "$2" || return 1
+    chmod 755 "$2"
+    local observed
+    observed="$("$2" -v 2>&1)" || return 1
+    [[ "$observed" == *"$CADDY_REQUIRED_VERSION"* ]] || { err 'Candidate is not the required native build'; return 1; }
+  fi
+}
+
+# Validate/stage private files before claiming; refusal never changes a runtime.
+automatic_machine_enrollment() {
+  local existing=false stage entry observed
+  if [ -e "$BINARY_PATH" ] || [ -L "$BINARY_PATH" ] || [ -e "$CLI_PATH" ] || [ -L "$CLI_PATH" ]; then
+    [ -x "$BINARY_PATH" ] && [ -x "$CLI_PATH" ] && [ -f "$CONFIG_FILE" ] && [ -f "$CREDENTIALS_FILE" ] || { err 'Partial native installation found; refusing overwrite'; return 1; }
+    observed="$("$BINARY_PATH" -v 2>&1)" || return 1
+    [[ "$observed" == *"$CADDY_REQUIRED_VERSION"* ]] || { err 'Unknown Caddy runtime; refusing overwrite'; return 1; }
+    if [ -f "$OPENRC_SERVICE_PATH" ] && command -v rc-service >/dev/null 2>&1; then
+      grep -Fxq "command=\"${BINARY_PATH}\"" "$OPENRC_SERVICE_PATH" &&
+      grep -Fxq "command_args=\"-c ${CONFIG_FILE}\"" "$OPENRC_SERVICE_PATH" &&
+      grep -Fq "${CREDENTIALS_FILE}" "$OPENRC_SERVICE_PATH" || { err 'Existing OpenRC service binding is unknown; refusing enrollment'; return 1; }
+    elif [ -f "$SYSTEMD_SERVICE_PATH" ] && command -v systemctl >/dev/null 2>&1; then
+      grep -Fxq "ExecStart=${BINARY_PATH} -c ${CONFIG_FILE}" "$SYSTEMD_SERVICE_PATH" &&
+      grep -Fxq "EnvironmentFile=-${CREDENTIALS_FILE}" "$SYSTEMD_SERVICE_PATH" || { err 'Existing systemd service binding is unknown; refusing enrollment'; return 1; }
+    else
+      err 'Existing native service definition required before enrollment'; return 1
+    fi
+    existing=true
+  elif [ -f "$INSTALL_ROOT/.machine-enrollment.json" ]; then
+    # Native CLI verifies durable request identity and partial credentials.
+    [ ! -e "${CADDY_ALTERNATE_BINARY:-/usr/bin/caddy}" ] &&
+    [ ! -e "$SYSTEMD_SERVICE_PATH" ] && [ ! -e "$OPENRC_SERVICE_PATH" ] &&
+    [ ! -e "${CADDY_DISTRIBUTION_UNIT:-/lib/systemd/system/caddy.service}" ] &&
+    [ ! -e /usr/lib/systemd/system/caddy.service ] || { err 'Conflicting Caddy service found'; return 1; }
+    if command -v systemctl >/dev/null 2>&1 && systemctl cat "$SYSTEMD_SERVICE_NAME" >/dev/null 2>&1; then err 'Conflicting Caddy service found'; return 1; fi
+    for entry in "$INSTALL_ROOT"/* "$INSTALL_ROOT"/.[!.]*; do
+      [ -e "$entry" ] || [ -L "$entry" ] || continue
+      case "${entry##*/}" in config.yml|credentials.env|credentials.env.lock|install-meta.json|.machine-enrollment.json|.machine-enrollment.json.lock) ;;
+        *) err 'Unknown installation files found; refusing overwrite'; return 1 ;;
+      esac
+    done
+  else
+    if preserve_existing_install; then err 'Unexpected existing installation'; return 1; fi
+  fi
+  if [ "$existing" = false ]; then install_deps; fi
+  stage="$(mktemp -d)"
+  if ! prepare_connection_cli "$stage/caddyctl" "$stage/caddy"; then rm -rf "$stage"; return 1; fi
+  if ! CADDY_ENROLLMENT_CODE="$ENROLLMENT_CODE" "$stage/caddyctl" machine-enroll \
+      --panel-url "$PANEL_URL" --machine-id "$MACHINE_ID" \
+      --config "$CONFIG_FILE" --credentials "$CREDENTIALS_FILE" --meta "$META_FILE" \
+      --install-root "$INSTALL_ROOT" --kernel "$KERNEL_TYPE" --health-port "$HEALTH_PORT"; then
+    rm -rf "$stage"; err 'Machine enrollment refused; retry the identical command after resolving the reported issue'; return 1
+  fi
+  mkdir -p "$(dirname "$BINARY_PATH")" "$(dirname "$CLI_PATH")"
+  install -m 755 "$stage/caddy" "$BINARY_PATH"
+  install -m 755 "$stage/caddyctl" "$CLI_PATH"
+  rm -rf "$stage"
+  if [ "$existing" = false ]; then cleanup_old_install; write_service; write_uninstall_script; fi
+  start_service
+  log 'Machine connected. It reports online before logical nodes are assigned; later assignments synchronize automatically.'
 }
 
 # Never overwrite working Caddy and its Machine credentials on repeat install.
@@ -539,8 +605,9 @@ EOF_UNINSTALL
 main() {
   parse_args "$@"
   check_root
-  read_connection_token
+  if [ -z "$ENROLLMENT_CODE" ]; then read_connection_token; fi
   validate_args
+  if [ -n "$ENROLLMENT_CODE" ]; then automatic_machine_enrollment; return; fi
   if [ "$REBIND" = true ]; then rebind_existing_machine; return; fi
   if preserve_existing_install; then return 0; fi
   install_deps
